@@ -68,7 +68,28 @@ Options (flag or environment variable):
 | `--adb-port` | `TV_ADB_PORT` | `5555` | ADB port on the TV |
 | `--package` | `TV_PACKAGE` | `com.swm.live` | App package to watch |
 
-### 5. Start it at logon (optional)
+### 5. Cover the picture during ads (optional)
+
+A small Android app draws a full-screen black overlay during the ad break. It shows "We'll be right back after this short ad break", a countdown that follows the real ad countdown, and either the latest [xkcd](https://xkcd.com) comic or the quote of the day, alternating each break. 7plus keeps playing underneath, so the ad still counts down and the script can still read it.
+
+Needs the JDK (17 tested) and the Android SDK command-line tools (build-tools and a platform, API 34 or newer). The build uses `aapt2`, `javac`, `d8` and `apksigner` directly, with no Gradle.
+
+```powershell
+.\install-overlay.ps1 -TvIp 192.168.0.122
+```
+
+This builds `overlay\build\tv-admute-overlay.apk`, installs it, grants "draw over other apps" with `appops`, and starts its service. `tv_admute.py` detects the app at startup and logs `connected, overlay on`; if it is not installed the script mutes only. Use `--no-overlay` (or `TV_OVERLAY=0`) to turn it off.
+
+Manual test (covers the screen for 10 seconds, then hides when you send HIDE):
+
+```powershell
+adb shell am start-foreground-service -n com.boredmancodes.tvadmute/.OverlayService -a SHOW --ei secs 10
+adb shell am start-foreground-service -n com.boredmancodes.tvadmute/.OverlayService -a HIDE
+```
+
+Content comes from the internet at runtime and refreshes every 3 hours: the comic from `xkcd.com/info.0.json` (licensed CC BY-NC 2.5, credit shown on screen) and the quote from the `zenquotes.io/api/today` endpoint (credit shown on screen). If both fail to load, the overlay shows only the message and countdown. The overlay window does not take focus or touch input, so the remote still controls 7plus underneath.
+
+### 6. Start it at logon (optional)
 
 ```powershell
 .\install-task.ps1 -TvIp 192.168.0.122
@@ -84,7 +105,8 @@ To remove it: `Unregister-ScheduledTask TvAdMute -Confirm:$false`.
 - Detection depends on the countdown layout in the 7plus app. An app update that moves or removes it breaks detection. The match is a short number or `m:ss` text in the bottom-left corner of the screen.
 - The check looks for a bare one or two digit number in that corner, so any other 7plus screen that shows one there could trigger a mute. The player controls overlay (pause, seek bar) has not been tested for this.
 - Detection lags by up to about a second (each screen read takes around 0.7 seconds).
-- This mutes; it does not skip the ads.
+- This mutes and covers the picture; it does not skip the ads.
+- The overlay uses Android's overlay window type. TVs that block it (or that do not allow `appops` to grant it) will mute only.
 - If the TV is off or asleep, ADB is unreachable and the script retries every 15 seconds until it returns.
 - Only the app package given by `--package` is watched. Other apps show no countdown, so the script leaves the volume alone.
 
