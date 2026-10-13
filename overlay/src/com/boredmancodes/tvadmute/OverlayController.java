@@ -63,6 +63,7 @@ final class OverlayController {
     private final java.util.Random rnd = new java.util.Random();
     private int kind = new java.util.Random().nextInt(KINDS);
     private int servedXkcd;
+    private long apodRetryAt;
     private volatile boolean fetching;
 
     private final Runnable rotate = new Runnable() {
@@ -245,9 +246,15 @@ final class OverlayController {
             case 1: return reddit(MEME_SUBS, 4);    // meme
             case 5: case 9: return reddit(COMIC_SUBS, 5);   // comic; use the largest preview
             case 8: {   // NASA astronomy picture, random from the archive
+                if (SystemClock.elapsedRealtime() < apodRetryAt) return null;
                 String key = ctx.getSharedPreferences("config", Context.MODE_PRIVATE).getString("nasa_key", "DEMO_KEY");
                 JSONArray a = new JSONArray(str(get("https://api.nasa.gov/planetary/apod?api_key=" + key + "&count=1", "application/json")));
                 JSONObject j = a.getJSONObject(0);
+                if (j.optString("url").contains("nasa-logo")) {
+                    // the API has served this placeholder for every date; try again in an hour
+                    apodRetryAt = SystemClock.elapsedRealtime() + 60L * 60 * 1000;
+                    return null;
+                }
                 if (!"image".equals(j.optString("media_type"))) return null;
                 c.img = bitmap(get(j.getString("url"), "image/*"), 1600);
                 String ex = j.optString("explanation");
