@@ -1,12 +1,26 @@
-param([Parameter(Mandatory)][string]$TvIp, [int]$Port = 5555)
-# Builds the overlay APK, installs it on the TV and grants "draw over other apps".
+param(
+    [Parameter(Mandatory)][string]$TvIp,
+    [int]$Port = 5555,
+    [switch]$NoBuild
+)
+# Builds the app, installs it on the TV and switches on its accessibility service
+# next to any services that are already enabled (the remote may depend on one).
 $ErrorActionPreference = "Stop"
 $adb = "${TvIp}:$Port"
 $pkg = "com.boredmancodes.tvadmute"
-& "$PSScriptRoot\overlay\build.ps1"
+$svc = "$pkg/$pkg.AdMuteService"
+if (-not $NoBuild) { & "$PSScriptRoot\overlay\build.ps1" }
 adb -s $adb install -r "$PSScriptRoot\overlay\build\tv-admute-overlay.apk"
 if ($LASTEXITCODE) { throw "adb install failed; is the TV authorised? (adb connect $adb)" }
-adb -s $adb shell appops set $pkg SYSTEM_ALERT_WINDOW allow
-adb -s $adb shell am start-foreground-service -n "$pkg/.OverlayService" | Out-Null
-Write-Host "Overlay installed. Test it (covers the screen for 10 seconds):"
-Write-Host "  adb -s $adb shell am start-foreground-service -n $pkg/.OverlayService -a SHOW --ei secs 10"
+
+$cur = (adb -s $adb shell settings get secure enabled_accessibility_services | Out-String).Trim()
+if ($cur -notmatch "AdMuteService") {
+    $new = if ($cur -and $cur -ne "null") { "${cur}:$svc" } else { $svc }
+    adb -s $adb shell settings put secure enabled_accessibility_services $new
+}
+adb -s $adb shell settings put secure accessibility_enabled 1
+Start-Sleep 3
+Write-Host "Enabled services: $(adb -s $adb shell settings get secure enabled_accessibility_services)"
+Write-Host "Test (covers the screen and mutes for 10 seconds):"
+Write-Host "  adb -s $adb shell am broadcast -a $pkg.DEBUG --es cmd show --ei secs 10"
+Write-Host "  adb -s $adb shell am broadcast -a $pkg.DEBUG --es cmd hide"

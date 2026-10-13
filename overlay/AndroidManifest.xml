@@ -7,6 +7,21 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application android:label="tv-admute">
+        <!-- on-device ad detection, mute and cover; needs no PC -->
+        <service
+            android:name=".AdMuteService"
+            android:exported="true"
+            android:label="tv-admute ad mute"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- legacy: driven over adb by tv_admute.py -->
         <service
             android:name=".OverlayService"
             android:exported="true" />

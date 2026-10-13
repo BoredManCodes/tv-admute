@@ -10,13 +10,18 @@ $out = Join-Path $here "build"
 Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$out\classes", "$out\dex" | Out-Null
 
+& "$($bt.FullName)\aapt2.exe" compile --dir "$here\res" -o "$out\res.zip"
+if ($LASTEXITCODE) { throw "aapt2 compile failed" }
 & "$($bt.FullName)\aapt2.exe" link -o "$out\base.apk" -I $jar.FullName --manifest "$here\AndroidManifest.xml" `
-    --min-sdk-version 26 --target-sdk-version 30 --version-code 1 --version-name 1.0
-if ($LASTEXITCODE) { throw "aapt2 failed" }
+    --min-sdk-version 26 --target-sdk-version 30 --version-code 2 --version-name 2.0 "$out\res.zip"
+if ($LASTEXITCODE) { throw "aapt2 link failed" }
 
 $src = Get-ChildItem "$here\src" -Recurse -Filter *.java | ForEach-Object FullName
-javac -encoding UTF-8 -source 8 -target 8 -Xlint:-options -cp $jar.FullName -d "$out\classes" $src
-if ($LASTEXITCODE) { throw "javac failed" }
+$ErrorActionPreference = "Continue"   # javac notes go to stderr, which is not a failure
+javac -encoding UTF-8 -source 8 -target 8 -Xlint:-options -cp $jar.FullName -d "$out\classes" $src 2>&1 | Out-Host
+$javacExit = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
+if ($javacExit) { throw "javac failed" }
 
 $classes = Get-ChildItem "$out\classes" -Recurse -Filter *.class | ForEach-Object FullName
 & "$($bt.FullName)\d8.bat" --lib $jar.FullName --release --output "$out\dex" $classes

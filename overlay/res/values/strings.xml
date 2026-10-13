@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="service_description">Reads the 7plus ad countdown to mute the TV and cover the picture during ad breaks.</string>
+</resources>
