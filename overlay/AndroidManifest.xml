@@ -21,7 +21,20 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- legacy: driven over adb by tv_admute.py -->
+        <!-- stat viewer, opened from the TV's app list -->
+        <activity
+            android:name=".StatsActivity"
+            android:exported="true"
+            android:label="Ad break stats"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- legacy: driven over adb by the old PC script -->
         <service
             android:name=".OverlayService"
             android:exported="true" />

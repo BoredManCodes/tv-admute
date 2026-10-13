@@ -63,6 +63,11 @@ public class AdMuteService extends AccessibilityService {
             if ("show".equals(cmd)) {
                 debugHold = true;
                 startAd(i.getIntExtra("secs", 10));
+            } else if ("nasakey".equals(cmd)) {
+                getSharedPreferences("config", MODE_PRIVATE).edit()
+                        .putString("nasa_key", i.getStringExtra("key")).apply();
+            } else if ("backfill".equals(cmd)) {
+                Stats.backfill(AdMuteService.this, i.getIntExtra("n", 0), i.getIntExtra("secs", 0) * 1000L);
             } else if ("hide".equals(cmd)) {
                 debugHold = false;
                 endAd();
@@ -121,6 +126,7 @@ public class AdMuteService extends AccessibilityService {
             audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0);
             weMuted = true;
         }
+        if (!debugHold) Stats.breakStarted(this);
         overlay.show(secs);
         lastSync = SystemClock.elapsedRealtime();
         h.removeCallbacks(poll);
@@ -136,6 +142,7 @@ public class AdMuteService extends AccessibilityService {
             weMuted = false;
         }
         overlay.hide();
+        Stats.breakEnded(this);
     }
 
     /** Seconds left on the countdown in the bottom-left corner, or NO_AD. */

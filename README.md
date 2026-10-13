@@ -10,7 +10,7 @@ Everything runs on the TV. The PC is only used once, to install the app.
 
 1. A small Android app registers an accessibility service that only listens to `com.swm.live`.
 2. It reads the 7plus screen and looks for the countdown text in the bottom-left corner. A countdown in `m:ss` form starts an ad break. Bare seconds also start one, but only while the player screen (`VideoActivity`) is in front, because menus show bare numbers too.
-3. Countdown found: it mutes the media volume and draws a full-screen black cover. The cover shows "We'll be right back after this short ad break", a countdown that follows the real one, and either the latest [xkcd](https://xkcd.com) comic or the quote of the day, alternating each break. 7plus keeps playing underneath.
+3. Countdown found: it mutes the media volume and draws a full-screen black cover. The cover shows "We'll be right back after this short ad break", a countdown that follows the real one, a card that changes every 20 seconds, and a stats line. 7plus keeps playing underneath.
 4. Countdown gone for three checks in a row: it unmutes and removes the cover.
 
 Safety behaviour:
@@ -64,7 +64,32 @@ adb shell am broadcast -a com.boredmancodes.tvadmute.DEBUG --es cmd hide
 
 The first covers the screen and mutes. Then start an episode and wait for an ad break.
 
-Content comes from the internet at runtime and refreshes every 3 hours: the comic from `xkcd.com/info.0.json` (licensed CC BY-NC 2.5, credit shown on screen) and the quote from the `zenquotes.io/api/today` endpoint (credit shown on screen). If both fail to load, the cover shows only the message and countdown.
+## Cards on the cover
+
+Cards are fetched ahead of time into a pool of 10 and one is shown every 20 seconds during a break. Each card shows its source on screen. If the next card has not loaded, the current one stays; if nothing loaded, the cover shows only the message and countdown.
+
+| Card | Source |
+|---|---|
+| xkcd of the day (newest strip, shown once per new strip) | `xkcd.com/info.0.json`, CC BY-NC 2.5 |
+| Comics | r/comics and r/wholesomecomics via `meme-api.com` |
+| Memes | r/memes, r/wholesomememes and r/funny via `meme-api.com` |
+| Astronomy picture | NASA APOD (`api.nasa.gov`) |
+| Quote | `zenquotes.io` |
+| Dad joke | `icanhazdadjoke.com` |
+| Random fact | `uselessfacts.jsph.pl` |
+| Cat / dog photo | `cataas.com`, `dog.ceo` |
+
+NSFW and spoiler Reddit posts are skipped, but Reddit content is not vetted and belongs to its authors. To change the mix, edit `MEME_SUBS`, `COMIC_SUBS` and `build()` in `OverlayController.java`.
+
+NASA APOD uses the shared `DEMO_KEY` (about 30 requests an hour per IP) unless you set your own free key from `api.nasa.gov`. The key lives on the TV, not in the repo:
+
+```powershell
+adb shell am broadcast -a com.boredmancodes.tvadmute.DEBUG --es cmd nasakey --es key YOUR_KEY
+```
+
+## Stats
+
+The cover shows a line at the bottom with this session and all-time counts of breaks blocked and time blocked. It counts up while a break runs. The "Ad break stats" entry in the TV's app list shows the same numbers. Totals are saved on each TV, and each TV counts separately. "Session" means since the service last started (a reboot or reinstall). Uninstalling the app clears the totals.
 
 ## Limits
 
