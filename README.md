@@ -15,7 +15,7 @@ Everything runs on the TV. The PC is only used once, to install the app.
 
 Safety behaviour:
 - It only unmutes if it did the muting, so a mute you set yourself stays.
-- The cover window takes no focus and no touch input, so the remote still controls 7plus.
+- Any remote button during a break skips the current cover card (for a comic you would rather not see). Back, Home, Power and the volume keys still work normally; other buttons are swallowed while the cover is up, so 7plus does not react behind it. Outside a break all keys pass through.
 - Turning the service off or leaving the app clears the cover and unmutes.
 
 The service does not use UiAutomation (the thing `uiautomator` and `uiautomator2` use). UiAutomation switches off every other accessibility service while it is connected, which stops remotes that depend on one, such as a launcher's key filter.

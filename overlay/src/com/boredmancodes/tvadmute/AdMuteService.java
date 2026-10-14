@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
+import android.view.KeyEvent;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -46,8 +47,8 @@ public class AdMuteService extends AccessibilityService {
     private OverlayController overlay;
     private AudioManager audio;
     private boolean inAd, weMuted, debugHold, inPlayer;
-    private int misses;
-    private long lastCheck, lastSync;
+    private int misses, lastBare = -1;
+    private long lastCheck, lastSync, lastBareAt;
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -92,6 +93,26 @@ public class AdMuteService extends AccessibilityService {
         if (inAd) return;
         if (SystemClock.elapsedRealtime() - lastCheck < CHECK_GAP_MS) return;
         check();
+    }
+
+    /**
+     * Any remote button skips the current cover card. System keys still reach
+     * the TV; everything else is swallowed so 7plus does not react behind the cover.
+     */
+    @Override protected boolean onKeyEvent(KeyEvent e) {
+        if (overlay == null || !overlay.isShown()) return false;
+        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) overlay.skip();
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_BACK:
+            case KeyEvent.KEYCODE_HOME:
+            case KeyEvent.KEYCODE_POWER:
+            case KeyEvent.KEYCODE_VOLUME_UP:
+            case KeyEvent.KEYCODE_VOLUME_DOWN:
+            case KeyEvent.KEYCODE_VOLUME_MUTE:
+                return false;
+            default:
+                return true;
+        }
     }
 
     @Override public void onInterrupt() { endAd(); }
@@ -145,6 +166,18 @@ public class AdMuteService extends AccessibilityService {
         Stats.breakEnded(this);
     }
 
+    /**
+     * A bare number outside a known player screen is only an ad countdown if it
+     * ticks down between reads; a static one is a list position or similar.
+     */
+    private boolean bareCountingDown(int v) {
+        long now = SystemClock.elapsedRealtime();
+        boolean ticking = lastBare != -1 && v < lastBare && lastBare - v <= 5 && now - lastBareAt < 3000;
+        lastBare = v;
+        lastBareAt = now;
+        return ticking;
+    }
+
     /** Seconds left on the countdown in the bottom-left corner, or NO_AD. */
     private int readCountdown() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
@@ -161,7 +194,8 @@ public class AdMuteService extends AccessibilityService {
                 if (t != null) {
                     Matcher m = COUNTDOWN.matcher(t);
                     // A bare number also shows up in menus (list positions), so outside the player only m:ss counts.
-                    if (m.matches() && (inPlayer || inAd || m.group(3) == null)) {
+                    if (m.matches() && (inPlayer || inAd || m.group(3) == null
+                            || bareCountingDown(Integer.parseInt(m.group(3))))) {
                         n.getBoundsInScreen(r);
                         if (r.left < 0.21 * dm.widthPixels && r.top > 0.74 * dm.heightPixels) {
                             return m.group(3) != null

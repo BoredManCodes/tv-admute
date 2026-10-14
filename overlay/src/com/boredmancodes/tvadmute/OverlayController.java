@@ -119,6 +119,16 @@ final class OverlayController {
         fetch();   // top the pool up
     }
 
+    /** Drop the current card and show the next one; blank if none is ready yet. */
+    void skip() {
+        if (!shown) return;
+        ui.removeCallbacks(rotate);
+        contentShown = false;
+        populate(true);
+        fetch();
+        ui.postDelayed(rotate, ROTATE_MS);
+    }
+
     void sync(int secs) {
         long target = SystemClock.elapsedRealtime() + secs * 1000L;
         if (Math.abs(target - deadline) > 1500) deadline = target;
