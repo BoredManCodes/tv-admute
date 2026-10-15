@@ -39,13 +39,15 @@ final class OverlayController {
     private static final String[] MEME_SUBS = {"memes", "wholesomememes", "funny"};
     private static final String[] COMIC_SUBS = {"comics", "wholesomecomics"};
     // card kinds; the fetcher walks 0..KINDS-1 in order
-    private static final int KINDS = 10;
+    private static final int KINDS = 13;
+    private static final long ANSWER_AFTER_MS = 15000;   // trivia: 15 s of question, then 5 s of answer
 
     private static final class Card {
         Bitmap img;
         String text = "";
         float sp = 18;
         String credit = "";
+        String answer;   // trivia: replaces text after ANSWER_AFTER_MS
     }
 
     private final Context ctx;
@@ -73,6 +75,11 @@ final class OverlayController {
             fetch();
             ui.postDelayed(this, ROTATE_MS);
         }
+    };
+
+    private String revealText;
+    private final Runnable reveal = new Runnable() {
+        @Override public void run() { if (shown && revealText != null) body.setText(revealText); }
     };
 
     private final Runnable tick = new Runnable() {
@@ -137,6 +144,7 @@ final class OverlayController {
     void hide() {
         ui.removeCallbacks(tick);
         ui.removeCallbacks(rotate);
+        ui.removeCallbacks(reveal);
         if (shown) {
             try { wm.removeView(root); } catch (Exception ignored) { }
             shown = false;
@@ -211,6 +219,9 @@ final class OverlayController {
             return;
         }
         contentShown = true;
+        ui.removeCallbacks(reveal);
+        revealText = c.answer;
+        if (c.answer != null) ui.postDelayed(reveal, ANSWER_AFTER_MS);
         if (c.img != null) {
             image.setImageBitmap(c.img);
             image.setVisibility(View.VISIBLE);
@@ -255,6 +266,8 @@ final class OverlayController {
             }
             case 1: return reddit(MEME_SUBS, 4);    // meme
             case 5: case 9: return reddit(COMIC_SUBS, 5);   // comic; use the largest preview
+            case 10: return weather();
+            case 11: case 12: return trivia();
             case 8: {   // NASA astronomy picture, random from the archive
                 if (SystemClock.elapsedRealtime() < apodRetryAt) return null;
                 String key = ctx.getSharedPreferences("config", Context.MODE_PRIVATE).getString("nasa_key", "DEMO_KEY");
@@ -323,6 +336,90 @@ final class OverlayController {
         c.sp = 16;
         c.credit = "r/" + j.optString("subreddit", sub) + " via meme-api.com";
         return c.img == null ? null : c;
+    }
+
+    /** Current conditions and a 3-day forecast for the configured postcode (Open-Meteo, no key). */
+    private Card weather() throws Exception {
+        android.content.SharedPreferences sp = ctx.getSharedPreferences("config", Context.MODE_PRIVATE);
+        String pc = sp.getString("postcode", "3690");
+        String geo = sp.getString("geo_" + pc, null);
+        if (geo == null) {
+            JSONArray a = new JSONArray(str(get("https://nominatim.openstreetmap.org/search?postalcode="
+                    + pc + "&country=au&format=json&limit=1", "application/json")));
+            if (a.length() == 0) return null;
+            JSONObject f = a.getJSONObject(0);
+            String[] parts = f.optString("display_name").split(", ");
+            geo = f.getString("lat") + "," + f.getString("lon") + "," + (parts.length > 1 ? parts[1] : pc);
+            sp.edit().putString("geo_" + pc, geo).apply();
+        }
+        String[] g = geo.split(",", 3);
+        JSONObject j = new JSONObject(str(get("https://api.open-meteo.com/v1/forecast?latitude=" + g[0]
+                + "&longitude=" + g[1] + "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m"
+                + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+                + "&timezone=auto&forecast_days=4", "application/json")));
+        JSONObject cur = j.getJSONObject("current");
+        JSONObject d = j.getJSONObject("daily");
+        StringBuilder sb = new StringBuilder();
+        sb.append(g[2]).append(" (").append(pc).append(")\nNow ")
+                .append(Math.round(cur.getDouble("temperature_2m"))).append("°, feels like ")
+                .append(Math.round(cur.getDouble("apparent_temperature"))).append("°, ")
+                .append(wmo(cur.getInt("weather_code"))).append(", wind ")
+                .append(Math.round(cur.getDouble("wind_speed_10m"))).append(" km/h\n");
+        for (int i = 0; i < 4; i++) {
+            String day = i == 0 ? "Today" : i == 1 ? "Tomorrow"
+                    : java.time.LocalDate.parse(d.getJSONArray("time").getString(i)).getDayOfWeek()
+                            .getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH);
+            sb.append('\n').append(day).append(": ")
+                    .append(Math.round(d.getJSONArray("temperature_2m_min").getDouble(i))).append("° to ")
+                    .append(Math.round(d.getJSONArray("temperature_2m_max").getDouble(i))).append("°, ")
+                    .append(wmo(d.getJSONArray("weather_code").getInt(i))).append(", rain ")
+                    .append(d.getJSONArray("precipitation_probability_max").optInt(i)).append('%');
+        }
+        Card c = new Card();
+        c.text = sb.toString();
+        c.sp = 26;
+        c.credit = "Weather data by Open-Meteo.com, CC BY 4.0";
+        return c;
+    }
+
+    private static String wmo(int code) {
+        if (code == 0) return "clear";
+        if (code <= 2) return "mostly clear";
+        if (code == 3) return "overcast";
+        if (code == 45 || code == 48) return "fog";
+        if (code >= 51 && code <= 57) return "drizzle";
+        if (code >= 61 && code <= 67) return "rain";
+        if (code >= 71 && code <= 77) return "snow";
+        if (code >= 80 && code <= 82) return "showers";
+        if (code == 85 || code == 86) return "snow showers";
+        if (code >= 95) return "thunderstorms";
+        return "mixed";
+    }
+
+    /** Multiple-choice question from Open Trivia DB; the answer replaces it after 15 s. */
+    private Card trivia() throws Exception {
+        JSONObject j = new JSONObject(str(get("https://opentdb.com/api.php?amount=1&type=multiple&encode=url3986", "application/json")));
+        if (j.getInt("response_code") != 0) return null;   // rate limited: one request per 5 s
+        JSONObject q = j.getJSONArray("results").getJSONObject(0);
+        String right = dec(q.getString("correct_answer"));
+        java.util.ArrayList<String> opts = new java.util.ArrayList<>();
+        opts.add(right);
+        JSONArray wrong = q.getJSONArray("incorrect_answers");
+        for (int i = 0; i < wrong.length(); i++) opts.add(dec(wrong.getString(i)));
+        java.util.Collections.shuffle(opts, rnd);
+        StringBuilder sb = new StringBuilder("Trivia: ").append(dec(q.getString("category")))
+                .append("\n\n").append(dec(q.getString("question"))).append("\n");
+        for (int i = 0; i < opts.size(); i++) sb.append('\n').append((char) ('A' + i)).append(") ").append(opts.get(i));
+        Card c = new Card();
+        c.text = sb.toString();
+        c.answer = c.text + "\n\nAnswer: " + (char) ('A' + opts.indexOf(right)) + ") " + right;
+        c.sp = 26;
+        c.credit = "Questions from opentdb.com, CC BY-SA 4.0";
+        return c;
+    }
+
+    private static String dec(String s) throws Exception {
+        return java.net.URLDecoder.decode(s.replace("+", "%2B"), "UTF-8");
     }
 
     private static String str(byte[] b) throws Exception { return new String(b, "UTF-8"); }
