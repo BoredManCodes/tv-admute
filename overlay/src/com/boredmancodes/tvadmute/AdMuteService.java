@@ -32,6 +32,7 @@ import java.util.regex.Pattern;
  * Debug broadcast (adb shell am broadcast):
  *   -a com.boredmancodes.tvadmute.DEBUG --es cmd show --ei secs 10
  *   -a com.boredmancodes.tvadmute.DEBUG --es cmd hide
+ *   -a com.boredmancodes.tvadmute.DEBUG --es cmd postcode --es pc 3690   (weather card location)
  */
 public class AdMuteService extends AccessibilityService {
     private static final String APP = "com.swm.live";
@@ -47,8 +48,8 @@ public class AdMuteService extends AccessibilityService {
     private OverlayController overlay;
     private AudioManager audio;
     private boolean inAd, weMuted, debugHold, inPlayer;
-    private int misses, lastBare = -1;
-    private long lastCheck, lastSync, lastBareAt;
+    private int misses;
+    private long lastCheck, lastSync;
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -67,6 +68,9 @@ public class AdMuteService extends AccessibilityService {
             } else if ("nasakey".equals(cmd)) {
                 getSharedPreferences("config", MODE_PRIVATE).edit()
                         .putString("nasa_key", i.getStringExtra("key")).apply();
+            } else if ("postcode".equals(cmd)) {
+                getSharedPreferences("config", MODE_PRIVATE).edit()
+                        .putString("postcode", i.getStringExtra("pc")).apply();
             } else if ("backfill".equals(cmd)) {
                 Stats.backfill(AdMuteService.this, i.getIntExtra("n", 0), i.getIntExtra("secs", 0) * 1000L);
             } else if ("hide".equals(cmd)) {
@@ -167,15 +171,11 @@ public class AdMuteService extends AccessibilityService {
     }
 
     /**
-     * A bare number outside a known player screen is only an ad countdown if it
-     * ticks down between reads; a static one is a list position or similar.
+     * A bare number outside a known player screen is only an ad countdown while
+     * audio is playing; menus and detail pages with nothing playing never need the cover.
      */
-    private boolean bareCountingDown(int v) {
-        long now = SystemClock.elapsedRealtime();
-        boolean ticking = lastBare != -1 && v < lastBare && lastBare - v <= 5 && now - lastBareAt < 3000;
-        lastBare = v;
-        lastBareAt = now;
-        return ticking;
+    private boolean bareCountingDown() {
+        return audio.isMusicActive();
     }
 
     /** Seconds left on the countdown in the bottom-left corner, or NO_AD. */
@@ -194,8 +194,8 @@ public class AdMuteService extends AccessibilityService {
                 if (t != null) {
                     Matcher m = COUNTDOWN.matcher(t);
                     // A bare number also shows up in menus (list positions), so outside the player only m:ss counts.
-                    if (m.matches() && (inPlayer || inAd || m.group(3) == null
-                            || bareCountingDown(Integer.parseInt(m.group(3))))) {
+                    if (m.matches() && (inPlayer || m.group(3) == null
+                            || bareCountingDown())) {
                         n.getBoundsInScreen(r);
                         if (r.left < 0.21 * dm.widthPixels && r.top > 0.74 * dm.heightPixels) {
                             return m.group(3) != null
